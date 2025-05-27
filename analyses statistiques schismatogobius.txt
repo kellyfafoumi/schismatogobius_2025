@@ -1,0 +1,107 @@
+# bibliothèques 
+library(readxl)
+library(ggplot2)
+library(car)
+library(dunn.test)
+library(dplyr)
+library(ggsignif)
+library(ggtext) 
+
+# chargement des données
+data_wNA <- read_excel("/Users/kellyfafoumi/Library/CloudStorage/OneDrive-MNHN/ECIRE_EVEEF M1/ECIRE_EEVEF/BOREA - Stage otholithes/données comptages otolithes.xlsx", sheet = "Feuil1")
+
+# suppression des lignes avec des NA dans les colonnes de comptage
+data <- data_wNA[!is.na(data_wNA$Comptage_CL) & !is.na(data_wNA$Comptage_KF), ]
+
+# calcul de la différence entre les deux lectures
+data$Différence <- data$Comptage_CL - data$Comptage_KF
+
+# test normalité de Shapiro-Wilk
+shapiro_resultat <- shapiro.test(data$Différence)
+print(shapiro_resultat)
+
+# test wilcoxon apparié 
+wilcox.test(data$Comptage_CL, data$Comptage_KF, paired = TRUE)
+
+# calcul de la moyenne des deux lectures pour estimer la durée de phase larvaire marine
+data$Moyenne <- rowMeans(data[, c("Comptage_CL", "Comptage_KF")], na.rm = TRUE)
+data$DPL <- trunc(data$Moyenne)
+
+# moyenne, écart-type et standard error par localité
+data_summary_loc <- data %>%
+  group_by(Localité) %>%
+  summarise(
+    moyenne = mean(DPL, na.rm = TRUE),
+    sd = sd(DPL, na.rm = TRUE),
+    n = sum(!is.na(DPL)),
+    se = sd / sqrt(n)
+  )
+print(data_summary_loc)
+
+# comparaison des durées de phase larvaire entre les localités
+data_sans_NC <- data %>% filter(Localité != "NC") # suppression des données pour la Nouvelle-Calédonie
+print(data_sans_NC)
+kruskal <- kruskal.test(DPL ~ Localité, data = data_sans_NC)
+print(kruskal)
+dunn <- dunn.test(x = data_sans_NC$DPL, g = data_sans_NC$Localité, method = "bonferroni")
+print(dunn)
+
+# moyenne, écart-type et standard error par espèce
+data_summary_sp <- data %>%
+  group_by(Espèce) %>%
+  summarise(
+    moyenne = mean(DPL, na.rm = TRUE),
+    sd = sd(DPL, na.rm = TRUE),
+    n = sum(!is.na(DPL)),  
+    se = sd / sqrt(n)   
+  )
+print(data_summary_sp)
+
+# comparaison des DPL entre les espèces 
+wilcox_resultat_sp <- wilcox.test(DPL ~ Espèce, data = data)
+print(wilcox_resultat_sp)
+
+# graphiques
+
+ggplot(data_sans_NC, aes(x = Localité, y = DPL)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +
+  geom_signif(
+    comparisons = list(
+      c("PNG", "Salomon"),
+      c("PNG", "Vanuatu"),
+      c("Salomon", "Vanuatu")
+    ),
+    annotations = c("1,0000", "0,9031", "1,0000"),  
+    y_position = c(max(data_sans_NC$DPL, na.rm = TRUE) + 1,
+                   max(data_sans_NC$DPL, na.rm = TRUE) + 3,
+                   max(data_sans_NC$DPL, na.rm = TRUE) + 5),
+    tip_length = 0.01
+  ) +
+  labs(
+    title = "Distribution de la durée de la phase larvaire marine par localité",
+    x = "Localité",
+    y = "Durée de la phase larvaire (jours)"
+  ) +
+  theme_minimal()
+
+ggplot(data, aes(x = Espèce, y = DPL)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6) +
+  geom_jitter(width = 0.2, alpha = 0.5, color = "black") +
+  geom_signif(
+    comparisons = list(c("Schismatogobius_fuligimentus", "Schismatogobius_vanuatuensis")),
+    annotations = "0,02132",
+    y_position = max(data$DPL, na.rm = TRUE) + 2,  # Ajuste si nécessaire
+    tip_length = 0.01
+  ) +
+  labs(
+    title = "Distribution de la durée de la phase larvaire marine par espèce",
+    x = "Espèce",
+    y = "Durée de la phase larvaire (jours)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_markdown()) +
+  scale_x_discrete(labels = c(
+    "Schismatogobius_fuligimentus" = "*Schismatogobius fuligimentus*",
+    "Schismatogobius_vanuatuensis" = "*Schismatogobius vanuatuensis*"
+  ))
